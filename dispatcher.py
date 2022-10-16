@@ -1,15 +1,14 @@
 import numpy
-import time 
 from typing import List 
 
-from .element import AGV, Cargo
 from scipy.optimize import linear_sum_assignment
-from multiprocessing import Queue
+
+from element import AGV, Cargo
 
 
 class Dispatcher(object):
 
-    def __init__(self, cargo_list: List[Cargo]) -> None:
+    def __init__(self, cargo_list) -> None:
         self.cargos = cargo_list
 
     def dispatch(self, agvs: List[AGV]):
@@ -20,6 +19,20 @@ class Dispatcher(object):
         for i, j in zip(starts_idx, goals_idx):
             starts.append(agvs[i])
             agvs[i].task = AGV.Task.PICKUP
+            agvs[i].target = self.cargos[j]
+            golas.append(self.cargos[j])
+        for cargo in golas:
+            self.cargos.remove(cargo)
+        return starts, golas
+
+    def standby(self, agvs: List[AGV]):
+        cargo_pos_list = [_.pos for _ in self.cargos]
+        agv_pos_list = [_.pos for _ in agvs]
+        starts_idx, goals_idx = self._min_dist(agv_pos_list, cargo_pos_list) 
+        starts, golas = [], []
+        for i, j in zip(starts_idx, goals_idx):
+            starts.append(agvs[i])
+            agvs[i].task = AGV.Task.STANDBY
             agvs[i].target = self.cargos[j]
             golas.append(self.cargos[j])
         for cargo in golas:

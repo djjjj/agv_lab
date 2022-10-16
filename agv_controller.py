@@ -2,7 +2,7 @@ import numpy
 from typing import List
 from multiprocessing import Queue, Value
 
-from .element import AGV
+from element import AGV
 
 class AGVController(object):
 
@@ -19,7 +19,7 @@ class AGVController(object):
     
     def step(self):
         if self.paths.shape[1] <= 1:
-            return[]
+            return True, []
         actions = []
         diff = self.paths[:, 1] - self.paths[:, 0]
         flag = False
@@ -41,12 +41,12 @@ class AGVController(object):
         return flag, actions
 
     def update_paths(self, paths: numpy.ndarray):
-        self.paths[:, 0: paths.shape[1]] = paths
-        self.paths[:, paths.shape[1]:] = numpy.tile(
-            paths[:, -1:],
-            (1, self.paths.shape[1] - paths.shape[1], 1),
-        )
-        
+        # self.paths[:, 0: paths.shape[1]] = paths
+        # self.paths[:, paths.shape[1]:] = numpy.tile(
+        #     paths[:, -1:],
+        #     (1, self.paths.shape[1] - paths.shape[1], 1),
+        # )
+        self.paths = paths
         
 if __name__ == '__main__':
     c = AGVController(

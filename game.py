@@ -1,36 +1,44 @@
-from asyncore import dispatcher
-from dis import dis
+# encoding: utf-8
+import sys
 import json
-import numpy
+import os 
 
 from multiprocessing import Value, Pool, Queue, Manager, Process
+import logging
+from typing import Any, Callable, List
 
-from .dispatcher import Dispatcher
-from .element import AGV, Shelf, Cargo, Message
-from .agv_controller import AGVController
-from .cbs.planner import Planner
-from .cbs.assigner import *
-    
+
+from dispatcher import Dispatcher
+from element import AGV, Shelf, Cargo, Message, Wall
+from agv_controller import AGVController
+from cbs.planner import Planner
+from cbs.assigner import *
+
+
+STEP_Q = Manager().Queue()
 
 
 def main(data):
+
+    walls = []
     static_obstacles = {(0, 0), (data['map_attr']['width'], data['map_attr']['height'])}
     agvs = {
-        _['id']: AGV(_['id'], (_['x'], _['y']), _['payload'], _['cap']) 
+        _['id']: AGV(_['id'], (_['x'], _['y']), _['payload'], _['cap'])
         for _ in data['map_state']['agvs']
     }
     shelves = {
-        _['id']: Shelf(_['id'], None, _['payload'], _['cap']) 
-        for _ in data['map_state']['shelves']        
+        _['id']: Shelf(_['id'], None, _['payload'], _['cap'])
+        for _ in data['map_state']['shelves']
     }
     cargos = {
-        _['id']: Cargo(_['id'], None, shelves[_['target']], _['weight']) 
-        for _ in data['map_state']['cargos']        
+        _['id']: Cargo(_['id'], None, shelves[_['target']], _['weight'])
+        for _ in data['map_state']['cargos']
     }
-    
+
     for _ in data['map_state']['map']:
         if _['type'] == 'wall':
             static_obstacles.add((_['x'], _['y']))
+            walls.append(Wall(None, (_['x'], _['y'])))
         elif _['type'] == 'agv':
             agvs[_['id']].pos = (_['x'], _['y'])
         elif _['type'] == 'cargo':
@@ -45,24 +53,29 @@ def main(data):
 
     planner = Planner(1, 0.5, static_obstacles)
     dispatcher = Dispatcher(cargo_list)
+    dispatcher2 = Dispatcher(walls)
     controller = AGVController(
         # data['map_attr']['max_steps'],
         100,
         agv_list
     )
-
-    i = 0
-    flag, step = controller.step()
-    if flag:
-        for agv in agv_list:
-            agv.target
-    standby = agv_list
+    standby = []
     flag = True
+    starts, goals = [], []
+
     while True:
+        standby = [_ for _ in agv_list if _.task == AGV.Task.STANDBY]
+        if len(standby) == len(agv_list) and len(dispatcher.cargos) == 0:
+            break
         if standby:
             dispatcher.dispatch(standby)
+
         if flag:
             starts, goals = [], []
+            standby = [_ for _ in agv_list if _.task == AGV.Task.STANDBY]
+            if standby:
+                # a, b = dispatcher2.standby(standby)
+                pass
             for _ in agv_list:
                 starts.append(_.pos)
                 if _.task == AGV.Task.STANDBY:
@@ -71,12 +84,80 @@ def main(data):
                     goals.append(_.payload.target.pos)
                 elif _.task == AGV.Task.PICKUP:
                     goals.append(_.target.pos)
-            paths = planner.plan(starts, goals, assign=straight)
+            paths = planner.plan(starts, goals, assign=straight, max_iter=100, low_level_max_iter=200)
             controller.update_paths(paths)
         flag, step = controller.step()
-        i += 1
-        print(step)
+        if step:
+            print(step,222)
+            STEP_Q.put(step)
+
+
+def start_online():
+    import marathon
+    from marathon import Submission,Map
+
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(logging.StreamHandler(stream=sys.stdout))
+
+    sub = marathon.new_submission()
+    maps = sub.maps()
+
+    for m in maps:
+        print(m.id)
+        m.start_game()
+        p = Process(
+            target=main,
+            args=({
+                'map_attr': m.get_map_attr(),
+                'map_state': m.get_map_state()
+            },)
+        )
+        p.start()
+
+        while True:
+            try:
+                step = STEP_Q.get(timeout=2)
+            except :
+                p.terminate()
+                break
+            m.step(step)
+            logger.info("运行gameId: {}， 总步数为：{}，是否完成比赛：{}".format(m.get_game_id(),m.get_steps(),m.get_done()))
+            logger.info("当前状态：")
+            logger.info(m.map_state)
+            print(sub.finish())
+
+
+def start_offline():
+    maps = json.loads(open(os.path.join(os.path.dirname(__file__), 'game-maps.json')).read())
+
+    for m in maps:
+        if m['map_id'] != 'w1':
+            continue
+        print(m['map_id'])
+        main(
+            {
+                'map_attr': m['map_attr'],
+                'map_state': m['map_state']
+            }
+        )
+        # p = Process(
+        #     target=main,
+        #     args=({
+        #         'map_attr': m['map_attr'],
+        #         'map_state': m['map_state']
+        #     },)
+        # )
+        # p.start()
+
+        # while True:
+        #     try:
+        #         step = STEP_Q.get(timeout=2)
+        #     except :
+        #         # p.terminate()
+        #         break
+        #     print(step)
+
 
 if __name__ == '__main__':
-    data = json.loads(open('/root/projects/agv_lab/game-maps.json', 'r').read())[3]
-    main(data)
+    start_offline()

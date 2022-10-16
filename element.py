@@ -1,5 +1,4 @@
-from asyncio import Task
-from typing import Tuple, List, Set
+from typing import Tuple, Set
 from enum import Enum
 
 class Element(object):
@@ -14,6 +13,16 @@ class Element(object):
 
     def __str__(self) -> str:
         return self.type + str(self.id)
+
+    def __repr__(self) -> str:
+        return self.type + str(self.pos)
+
+
+class Wall(Element):
+
+    def __init__(self, id: int, pos: Tuple[int, int]) -> None:
+        super().__init__(id, pos, 'W')
+
 
 class Shelf(Element):
 

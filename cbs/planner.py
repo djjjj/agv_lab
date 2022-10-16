@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import time 
 from typing import List, Tuple, Dict, Callable, Set
 import multiprocessing as mp
 from heapq import heappush, heappop
@@ -41,7 +42,18 @@ class Planner:
         self.agents = assign(starts, goals)
         constraints = Constraints()
         # Compute path for each agent using low level planner
-        solution = dict((agent, self.calculate_path(agent, constraints, None)) for agent in self.agents)
+        solution = {}
+        paths = []
+        for agent in self.agents:
+            path = self.calculate_path(agent, constraints, None)
+            if len(path) == 0:
+                path = np.array([agent.start])
+            paths.append(path)
+        #index = self.sniff(paths)
+        #print(index)
+        for agent, path in zip(self.agents, paths):
+            solution[agent] = path#[:index]
+            print(agent.start, agent.goal, path)
         open = []
         if all(len(path) != 0 for path in solution.values()):
             # Make root node
@@ -50,10 +62,11 @@ class Planner:
             open.append(node)
         manager = mp.Manager()
         iter_ = 0
+        start = time.time()
         while open and iter_ < max_iter:
             iter_ += 1
-            results = manager.list([])
-            processes = []
+            # results = manager.list([])
+            # processes = []
             # Default to 10 processes maximum
             for _ in range(max_process if len(open) > max_process else len(open)):
             #     p = mp.Process(target=self.search_node, args=[heappop(open), results])
@@ -68,6 +81,7 @@ class Planner:
 #                     node.cost, "start"
 #                 )
                 result = self.search_node(node)
+                print(iter_, time.time() - start)
                 # print(result)
                 # if result[0] is not None:
                 #     print(
@@ -107,7 +121,6 @@ class Planner:
             # results.append((self.reformat(self.agents, best.solution),))
             # return
             return (self.reformat(self.agents, best.solution),)
-
         # Calculate new constraints
         # agent_i_constraint = self.calculate_constraints(best, agent_i, agent_j, time_of_conflict)
         # agent_j_constraint = self.calculate_constraints(best, agent_j, agent_i, time_of_conflict)
@@ -139,14 +152,6 @@ class Planner:
     Pair of agent, point of conflict
     '''
     def validate_paths(self, agents, node: CTNode):
-        # Check collision pair-wise
-        # for agent_i, agent_j in combinations(agents, 2):
-        #     time_of_conflict = self.safe_distance(node.solution, agent_i, agent_j)
-        #     # time_of_conflict=1 if there is not conflict
-        #     if time_of_conflict == -1:
-        #         continue
-        #     return agent_i, agent_j, time_of_conflict
-        # return None, None, -1
         solution = node.solution
         for agent_i, agent_j in combinations(agents, 2):
             for idx in range(min(len(solution[agent_i]), len(solution[agent_j])) - 1):
@@ -159,15 +164,31 @@ class Planner:
                             agent_i, {idx+1: {tuple(pt2)}}),
                         node.constraints.fork(
                             agent_j, {idx+1: {tuple(pt2)}}),
-                    )
+                        )
                 elif (np.array_equal(pt1, pt4) and np.array_equal(pt2, pt3)):
                     return (
-                            agent_i, agent_j,
-                            node.constraints.fork(
-                                agent_i, {idx+1: {tuple(pt2),}}),
-                            node.constraints.fork(
-                                agent_j, {idx+1: {tuple(pt4), tuple(pt3)}},),
-                        )
+                    agent_i, agent_j,
+                    node.constraints.fork(
+                        agent_i, {idx+1: {tuple(pt2),}}),
+                    node.constraints.fork(
+                        agent_j, {idx+1: {tuple(pt4), tuple(pt3)}},),
+                    )
+                elif np.array_equal(pt2, pt3):
+                    return (
+                    agent_i, agent_j,
+                    node.constraints.fork(
+                        agent_i, {idx+1: {tuple(pt3),}}),
+                    node.constraints.fork(
+                        agent_j, {idx+1: {tuple(pt4), tuple(pt3)}}),
+                    )
+                elif np.array_equal(pt1, pt4):
+                    return (
+                        agent_i, agent_j,
+                        node.constraints.fork(
+                            agent_i, {idx+1: {tuple(pt1), tuple(pt2)}}),
+                        node.constraints.fork(
+                            agent_j, {idx+1: {tuple(pt1)}},),
+                    )
         return (None, None, None, None, )
 
     def safe_distance(self, solution: Dict[Agent, np.ndarray], agent_i: Agent, agent_j: Agent) -> int:
@@ -251,6 +272,40 @@ class Planner:
             solution[agent] = padded
         return solution
 
+    def sniff(self, paths):
+        buckets = [dict()] * (max([len(_) for _ in paths]) - 1)
+        for i, j in combinations(range(len(paths)), 2):
+            path_i, path_j = paths[i], paths[j]
+            for idx in range(min(len(path_i), len(path_j)) - 1):
+                pt1, pt2 = tuple(path_i[idx]), tuple(path_i[idx+1])
+                pt3, pt4 = tuple(path_j[idx]), tuple(path_j[idx+1])
+                if np.array_equal(pt2, pt4):
+                    if pt2 not in buckets[idx]:
+                        buckets[idx][pt2] = set()
+                    buckets[idx][pt2].update([i, j])
+                elif (np.array_equal(pt1, pt4) and np.array_equal(pt2, pt3)):
+                    if pt1 not in buckets[idx]:
+                        buckets[idx][pt1] = set()
+                    buckets[idx][pt1].update([i, j])
+                    if pt2 not in buckets[idx]:
+                        buckets[idx][pt2] = set()
+                    buckets[idx][pt2].update([i, j])
+                elif np.array_equal(pt2, pt3):
+                    if pt3 not in buckets[idx]:
+                        buckets[idx][pt3] = set()
+                    buckets[idx][pt3].update([i, j])
+                elif np.array_equal(pt1, pt4):
+                    if pt4 not in buckets[idx]:
+                        buckets[idx][pt4] = set()
+                    buckets[idx][pt4].update([i, j])
+
+        total = 0
+        for i, _ in enumerate(buckets):
+            cnt = len([__ for __ in _.values() if len(__) > 1])
+            total += cnt 
+            if total >= 8:
+                return min(max(i, 2), 5)
+        return max(len(buckets), 2) 
 
 if __name__ == '__main__':
     planner = Planner(
