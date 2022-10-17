@@ -35,8 +35,8 @@ class Dispatcher(object):
             agvs[i].task = AGV.Task.STANDBY
             agvs[i].target = self.cargos[j]
             golas.append(self.cargos[j])
-        for cargo in golas:
-            self.cargos.remove(cargo)
+        # for cargo in golas:
+        #     self.cargos.remove(cargo)
         return starts, golas
 
     def _min_dist(self, starts, goals):

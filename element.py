@@ -20,7 +20,8 @@ class Element(object):
 
 class Wall(Element):
 
-    def __init__(self, id: int, pos: Tuple[int, int]) -> None:
+    def __init__(self, pos: Tuple[int, int]) -> None:
+        id = (pos[0] << 8) | pos[1]
         super().__init__(id, pos, 'W')
 
 

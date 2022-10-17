@@ -6,7 +6,7 @@ import os
 from multiprocessing import Value, Pool, Queue, Manager, Process
 import logging
 from typing import Any, Callable, List
-
+import numpy
 
 from dispatcher import Dispatcher
 from element import AGV, Shelf, Cargo, Message, Wall
@@ -19,8 +19,7 @@ STEP_Q = Manager().Queue()
 
 
 def main(data):
-
-    walls = []
+    edge = numpy.zeros((data['map_attr']['height'], data['map_attr']['width']))
     static_obstacles = {(0, 0), (data['map_attr']['width'], data['map_attr']['height'])}
     agvs = {
         _['id']: AGV(_['id'], (_['x'], _['y']), _['payload'], _['cap'])
@@ -38,7 +37,7 @@ def main(data):
     for _ in data['map_state']['map']:
         if _['type'] == 'wall':
             static_obstacles.add((_['x'], _['y']))
-            walls.append(Wall(None, (_['x'], _['y'])))
+            edge[_['y'], _['x']] = 1
         elif _['type'] == 'agv':
             agvs[_['id']].pos = (_['x'], _['y'])
         elif _['type'] == 'cargo':
@@ -46,6 +45,28 @@ def main(data):
         elif _['type'] == 'shelf':
             shelves[_['id']].pos = (_['x'], _['y'])
             static_obstacles.add((_['x'], _['y']))
+            edge[_['y'], _['x']] = 1
+
+    wall_edge = set()
+    for i in range(edge.shape[0]):
+        for j in range(edge.shape[1]):
+            if edge[i, j] == 0:
+                wall_edge.add(Wall((j - 1, i)))
+                break
+        for j in range(edge.shape[1] - 1, -1, -1):
+            if edge[i, j] == 0:
+                wall_edge.add(Wall((j + 1, i)))
+                break
+    for j in range(edge.shape[1]):
+        for i in range(edge.shape[0]):
+            if edge[i, j] == 0:
+                wall_edge.add(Wall((j, i - 1)))
+                break
+        for i in range(edge.shape[0] - 1, -1, -1):
+            if edge[i, j] == 0:
+                wall_edge.add(Wall((j, i + 1)))
+                break
+    wall_edge = list(wall_edge)
 
     static_obstacles = list(static_obstacles)
     agv_list = list(agvs.values())
@@ -53,7 +74,7 @@ def main(data):
 
     planner = Planner(1, 0.5, static_obstacles)
     dispatcher = Dispatcher(cargo_list)
-    dispatcher2 = Dispatcher(walls)
+    dispatcher2 = Dispatcher(wall_edge)
     controller = AGVController(
         # data['map_attr']['max_steps'],
         100,
@@ -62,8 +83,9 @@ def main(data):
     standby = []
     flag = True
     starts, goals = [], []
-
-    while True:
+    max_step = data['map_attr']['max_steps']
+    cnt_step = 0
+    while cnt_step <= max_step:
         standby = [_ for _ in agv_list if _.task == AGV.Task.STANDBY]
         if len(standby) == len(agv_list) and len(dispatcher.cargos) == 0:
             break
@@ -74,89 +96,76 @@ def main(data):
             starts, goals = [], []
             standby = [_ for _ in agv_list if _.task == AGV.Task.STANDBY]
             if standby:
-                # a, b = dispatcher2.standby(standby)
-                pass
+                dispatcher2.standby(standby)
             for _ in agv_list:
                 starts.append(_.pos)
                 if _.task == AGV.Task.STANDBY:
-                    goals.append(_.pos)
+                    goals.append(_.target.pos)
                 elif _.task == AGV.Task.DELIVERY:
                     goals.append(_.payload.target.pos)
                 elif _.task == AGV.Task.PICKUP:
                     goals.append(_.target.pos)
-            paths = planner.plan(starts, goals, assign=straight, max_iter=100, low_level_max_iter=200)
+            paths = planner.plan(starts, goals, assign=straight, max_iter=100, low_level_max_iter=100)
             controller.update_paths(paths)
         flag, step = controller.step()
         if step:
-            print(step,222)
+            cnt_step += 1
             STEP_Q.put(step)
+
+
+def start(m, func=lambda x: print(x)):
+    p = Process(
+        target=main,
+        args=({
+            'map_attr': m['map_attr'],
+            'map_state': m['map_state']
+        },)
+    )
+    p.start()
+    all_stay = [
+        {"type": AGV.Action.STAY.name}
+        for _ in m['map_state']['agvs']
+    ]
+    while p.is_alive():
+        try:
+            step = STEP_Q.get(timeout=2.5)
+        except :
+            # p.terminate()
+            if p.is_alive():
+                step = all_stay
+            else:
+                break
+        func(step)
 
 
 def start_online():
     import marathon
-    from marathon import Submission,Map
 
-    logger = logging.getLogger(__name__)
-    logger.setLevel(logging.DEBUG)
-    logger.addHandler(logging.StreamHandler(stream=sys.stdout))
+    # logger = logging.getLogger(__name__)
+    # logger.setLevel(logging.DEBUG)
+    # logger.addHandler(logging.StreamHandler(stream=sys.stdout))
 
     sub = marathon.new_submission()
-    maps = sub.maps()
 
-    for m in maps:
-        print(m.id)
-        m.start_game()
-        p = Process(
-            target=main,
-            args=({
-                'map_attr': m.get_map_attr(),
-                'map_state': m.get_map_state()
-            },)
-        )
-        p.start()
+    for game_map in sub.maps():
 
-        while True:
-            try:
-                step = STEP_Q.get(timeout=2)
-            except :
-                p.terminate()
-                break
-            m.step(step)
-            logger.info("运行gameId: {}， 总步数为：{}，是否完成比赛：{}".format(m.get_game_id(),m.get_steps(),m.get_done()))
-            logger.info("当前状态：")
-            logger.info(m.map_state)
-            print(sub.finish())
+        m = {
+            'map_id': game_map.id,
+            'map_attr': game_map.get_map_attr(),
+            'map_state': game_map.get_map_state()
+        }
+        print(m['map_id'])
+        game_map.start_game()
+        start(m, game_map.step)
+
+        print(sub.finish())
 
 
 def start_offline():
     maps = json.loads(open(os.path.join(os.path.dirname(__file__), 'game-maps.json')).read())
-
     for m in maps:
-        if m['map_id'] != 'w1':
-            continue
-        print(m['map_id'])
-        main(
-            {
-                'map_attr': m['map_attr'],
-                'map_state': m['map_state']
-            }
-        )
-        # p = Process(
-        #     target=main,
-        #     args=({
-        #         'map_attr': m['map_attr'],
-        #         'map_state': m['map_state']
-        #     },)
-        # )
-        # p.start()
-
-        # while True:
-        #     try:
-        #         step = STEP_Q.get(timeout=2)
-        #     except :
-        #         # p.terminate()
-        #         break
-        #     print(step)
+        if m['map_id'] == 'w1':
+            start(m)
 
 
 if __name__ == '__main__':

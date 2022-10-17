@@ -49,11 +49,11 @@ class Planner:
             if len(path) == 0:
                 path = np.array([agent.start])
             paths.append(path)
-        #index = self.sniff(paths)
-        #print(index)
+        index = self.sniff(paths)
+
         for agent, path in zip(self.agents, paths):
-            solution[agent] = path#[:index]
-            print(agent.start, agent.goal, path)
+            solution[agent] = path[:index]
+
         open = []
         if all(len(path) != 0 for path in solution.values()):
             # Make root node
@@ -81,7 +81,6 @@ class Planner:
 #                     node.cost, "start"
 #                 )
                 result = self.search_node(node)
-                print(iter_, time.time() - start)
                 # print(result)
                 # if result[0] is not None:
                 #     print(
@@ -273,7 +272,9 @@ class Planner:
         return solution
 
     def sniff(self, paths):
-        buckets = [dict()] * (max([len(_) for _ in paths]) - 1)
+        buckets = []
+        for i in range((max([len(_) for _ in paths]) - 1)):
+            buckets.append(dict())
         for i, j in combinations(range(len(paths)), 2):
             path_i, path_j = paths[i], paths[j]
             for idx in range(min(len(path_i), len(path_j)) - 1):
@@ -298,7 +299,14 @@ class Planner:
                     if pt4 not in buckets[idx]:
                         buckets[idx][pt4] = set()
                     buckets[idx][pt4].update([i, j])
-
+        i = 0
+        while i < len(buckets):
+            if len([__ for __ in buckets[i].values() if len(__) > 1]) != 0:
+                break
+            i += 1
+        if i > 1:
+            return i + 1
+        return 3
         total = 0
         for i, _ in enumerate(buckets):
             cnt = len([__ for __ in _.values() if len(__) > 1])
