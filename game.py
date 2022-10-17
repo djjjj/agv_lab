@@ -105,7 +105,7 @@ def main(data):
                     goals.append(_.payload.target.pos)
                 elif _.task == AGV.Task.PICKUP:
                     goals.append(_.target.pos)
-            paths = planner.plan(starts, goals, assign=straight, max_iter=100, low_level_max_iter=100)
+            paths = planner.plan(starts, goals, assign=straight, max_iter=100, low_level_max_iter=1000)
             controller.update_paths(paths)
         flag, step = controller.step()
         if step:
@@ -116,10 +116,7 @@ def main(data):
 def start(m, func=lambda x: print(x)):
     p = Process(
         target=main,
-        args=({
-            'map_attr': m['map_attr'],
-            'map_state': m['map_state']
-        },)
+        args=(m,)
     )
     p.start()
     all_stay = [
@@ -148,7 +145,7 @@ def start_online():
     sub = marathon.new_submission()
 
     for game_map in sub.maps():
-
+        game_map.start_game()
         m = {
             'map_id': game_map.id,
             'map_attr': game_map.get_map_attr(),
@@ -164,7 +161,7 @@ def start_online():
 def start_offline():
     maps = json.loads(open(os.path.join(os.path.dirname(__file__), 'game-maps.json')).read())
     for m in maps:
-        if m['map_id'] == 'w1':
+        if m['map_id'] == 'l3':
             start(m)
 
 

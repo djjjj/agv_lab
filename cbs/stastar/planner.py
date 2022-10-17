@@ -119,7 +119,7 @@ class Planner:
         # return self.reconstruct_path(came_from, current_state)
         if debug:
             print('STA*: Open set is empty, no path found.')
-        return self.reconstruct_path(came_from, current_state)
+        # return self.reconstruct_path(came_from, current_state)
         return np.array([])
 
     '''

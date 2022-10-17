@@ -50,10 +50,9 @@ class Planner:
                 path = np.array([agent.start])
             paths.append(path)
         index = self.sniff(paths)
-
         for agent, path in zip(self.agents, paths):
             solution[agent] = path[:index]
-
+        print(solution, index)
         open = []
         if all(len(path) != 0 for path in solution.values()):
             # Make root node
@@ -75,26 +74,8 @@ class Planner:
             # for p in processes:
             #     p.join()
                 node = heappop(open)
-#                 print(
-#                     node.constraints,
-#                     node.solution,
-#                     node.cost, "start"
-#                 )
                 result = self.search_node(node)
-                # print(result)
-                # if result[0] is not None:
-                #     print(
-                #         result[0].constraints,
-                #         result[0].solution,
-                #         result[0].cost, "left"
-                #     )
-                # if result[1] is not None:
-                #     print(
-                #         result[1].constraints,
-                #         result[1].solution,
-                #         result[1].cost, "right"
-                #     )
-                # input("")
+
             # for result in results:
                 if len(result) == 1:
                     if debug:
@@ -123,7 +104,7 @@ class Planner:
         # Calculate new constraints
         # agent_i_constraint = self.calculate_constraints(best, agent_i, agent_j, time_of_conflict)
         # agent_j_constraint = self.calculate_constraints(best, agent_j, agent_i, time_of_conflict)
-#         print(agent_i_constraint, agent_j_constraint, 123)
+
         # Calculate new paths
         agent_i_path = self.calculate_path(agent_i,
                                            agent_i_constraint,
@@ -131,8 +112,6 @@ class Planner:
         agent_j_path = self.calculate_path(agent_j,
                                            agent_j_constraint,
                                            self.calculate_goal_times(best, agent_j, self.agents))
-#         print(self.calculate_goal_times(best, agent_i, self.agents), self.calculate_goal_times(best, agent_j, self.agents))
-#         print(agent_i_path, agent_j_path, 'pathsss')
         # Replace old paths with new ones in solution
         solution_i = best.solution
         solution_j = deepcopy(best.solution)
@@ -299,6 +278,7 @@ class Planner:
                     if pt4 not in buckets[idx]:
                         buckets[idx][pt4] = set()
                     buckets[idx][pt4].update([i, j])
+        print(buckets)
         i = 0
         while i < len(buckets):
             if len([__ for __ in buckets[i].values() if len(__) > 1]) != 0:
@@ -306,7 +286,7 @@ class Planner:
             i += 1
         if i > 1:
             return i + 1
-        return 3
+        return len(buckets)
         total = 0
         for i, _ in enumerate(buckets):
             cnt = len([__ for __ in _.values() if len(__) > 1])
@@ -319,14 +299,21 @@ if __name__ == '__main__':
     planner = Planner(
         1, 0.5,
         [
-            (0, 0), (9, 2),
-            (1, 0), (2, 0), (3, 0), (4, 0),
-            (6, 0), (7, 0), (8, 0), (9, 0),
+            (4, 0), (5, 4), (10, 0), (9, 2), (3, 16), (5, 7), (5, 13), (8, 0), (0, 2), 
+            (5, 10), (5, 16), (9, 5), (0, 5), (9, 8), (1, 0), (9, 11), (0, 8), (0, 14), 
+            (9, 14), (0, 11), (0, 17), (2, 14), (6, 8), (7, 16), (7, 13), (3, 0), (9, 3), 
+            (5, 0), (5, 6), (5, 3), (3, 18), (3, 15), (5, 12), (9, 7), (9, 4), (0, 1), (0, 7), 
+            (5, 15), (8, 8), (0, 4), (0, 10), (0, 16), (9, 10), (9, 13), (0, 13), (9, 16), (7, 0), 
+            (7, 12), (6, 16), (5, 2), (9, 0), (3, 14), (5, 5), (5, 11), (12, 20), (0, 0), (3, 17), 
+            (5, 8), (5, 14), (0, 3), (0, 9), (2, 0), (8, 16), (0, 6), (0, 12), (9, 6), (9, 12), 
+            (9, 15), (0, 15), (6, 0), (0, 18), (7, 11), (7, 8), (7, 14)
         ],
     )
     print(planner.plan(
-        [(4, 1), (6, 1)],
-        [(6, 1), (4, 1)],
-        assign=straight
+        [(1, 16), (2, 16), (1, 17), (2, 17)],
+        [(7, 4), (7, 3), (7, 6), (7, 5)],
+        assign=straight,
+        max_iter=100,
+        low_level_max_iter=500
     ))
 
